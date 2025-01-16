@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from pyperfmon import pyperfmon
 
 # Constant to adjust collection interval
-COLLECTION_INTERVAL = 1
+COLLECTION_INTERVAL = 2
 
 # Constant to define database storage
 DATABASE = "metrics.db"
@@ -23,12 +23,12 @@ cursor = conn.cursor()
 # Create the Metrics table if it doesn't exist
 cursor.execute(
     """
-CREATE TABLE IF NOT EXISTS Metrics (
-    timestamp INTEGER,
-    name TEXT,
-    value REAL
-)
-"""
+    CREATE TABLE IF NOT EXISTS Metrics (
+        timestamp INTEGER,
+        name TEXT,
+        value REAL
+    )
+    """
 )
 conn.commit()
 cursor.close()
