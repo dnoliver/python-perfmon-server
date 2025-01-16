@@ -58,20 +58,24 @@ def collect_metrics():
         timestamp = time.time()
 
         # Get the Metrics
-        processor_time = pm.getCounter(r"Processor Information\_Total\% Processor Time")
+        processor_usage = pm.getCounter(
+            r"Processor Information\_Total\% Processor Time"
+        )
+        memory_usage = pm.getCounter(r"Memory\% Committed Bytes In Use")
+        metrics = [
+            (timestamp, "CPUTotalUsagePercentage", float(processor_usage[1])),
+            (timestamp, "MemoryTotalUsagePercentage", float(memory_usage[1])),
+        ]
 
         # Store the Metrics
-        _cursor.execute(
-            """
-        INSERT INTO Metrics (timestamp, name, value)
-        VALUES (:timestamp, :metric, :value)
-        """,
-            {
-                "timestamp": timestamp,
-                "metric": "CPUTotalTimePercentage",
-                "value": float(processor_time[1]),
-            },
-        )
+        for metric in metrics:
+            _cursor.execute(
+                """
+                INSERT INTO Metrics (timestamp, name, value)
+                VALUES (?, ?, ?)
+                """,
+                metric,
+            )
         _conn.commit()
 
         # Sleep for COLLECTION_INTERVAL seconds
@@ -104,9 +108,9 @@ def read_available_counters():
         # Get the list of available values in the database
         _cursor.execute(
             """
-        SELECT DISTINCT name
-        FROM Metrics
-        """
+            SELECT DISTINCT name
+            FROM Metrics
+            """
         )
         rows = _cursor.fetchall()
         _results = [row[0] for row in rows]
@@ -134,12 +138,12 @@ def read_performance_counter(counter_name: str):
         # Get the list of available values in the database
         _cursor.execute(
             """
-        SELECT * FROM Metrics WHERE name = :name
-        """,
+            SELECT * FROM Metrics WHERE name = :name
+            """,
             {"name": counter_name},
         )
         rows = _cursor.fetchall()
-        _results = list(rows)
+        _results = [{"timestamp": row[0], "value": row[2]} for row in rows]
     except Exception as e:
         raise e
     finally:
