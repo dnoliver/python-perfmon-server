@@ -9,6 +9,7 @@ from threading import Thread
 import pythoncom
 from fastapi import FastAPI
 from pyperfmon import pyperfmon
+import logging
 
 # Constant to adjust collection interval
 COLLECTION_INTERVAL = 2
@@ -24,14 +25,30 @@ cursor = conn.cursor()
 cursor.execute(
     """
     CREATE TABLE IF NOT EXISTS Metrics (
-        timestamp INTEGER,
+        timestamp REAL,
         name TEXT,
         value REAL
     )
     """
 )
 conn.commit()
+
+# Create the Prune trigger if it doesn't exists
+cursor.execute(
+    """
+    CREATE TRIGGER IF NOT EXISTS Prune
+    AFTER INSERT ON Metrics
+    BEGIN
+        DELETE FROM Metrics
+        WHERE timestamp < (CAST(strftime('%s') as REAL) - 3600);
+    END
+    """
+)
+conn.commit()
+
+# Close connection
 cursor.close()
+
 
 
 # Function to collect metrics
@@ -44,6 +61,12 @@ def collect_metrics():
     _conn = sqlite3.connect(DATABASE)
     _cursor = _conn.cursor()
 
+    # Initialize logger
+    logger = logging.getLogger('uvicorn.error')
+
+    # Print State
+    logger.info("Collector Starting")
+
     # Initialize the COM library
     pythoncom.CoInitialize()  # pylint: disable=no-member
 
@@ -52,6 +75,9 @@ def collect_metrics():
 
     # Connect to localhost
     pm.connect("localhost")
+
+    # Print State
+    logger.info("Collector Started")
 
     while True:
         # Capture Epoch
@@ -135,12 +161,15 @@ def read_performance_counter(counter_name: str):
     _results = None
 
     try:
+        # Get a timestamp from five minutes ago
+        timestamp = time.time() - 300
+
         # Get the list of available values in the database
         _cursor.execute(
             """
-            SELECT * FROM Metrics WHERE name = :name
+            SELECT * FROM Metrics WHERE name = :name and timestamp > :timestamp
             """,
-            {"name": counter_name},
+            {"name": counter_name, "timestamp": timestamp},
         )
         rows = _cursor.fetchall()
         _results = [{"timestamp": row[0], "value": row[2]} for row in rows]

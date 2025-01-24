@@ -6,4 +6,5 @@ Run:
 python -m venv .venv
 .\.venv\Scripts\Activate
 pip install -r requirements.txt
+uvicorn main:app --reload
 ```
