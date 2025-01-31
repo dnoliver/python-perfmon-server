@@ -2,6 +2,7 @@
 Metrics Collection Server
 """
 
+import logging
 import sqlite3
 import time
 from threading import Thread
@@ -9,7 +10,6 @@ from threading import Thread
 import pythoncom
 from fastapi import FastAPI
 from pyperfmon import pyperfmon
-import logging
 
 # Constant to adjust collection interval
 COLLECTION_INTERVAL = 2
@@ -50,7 +50,6 @@ conn.commit()
 cursor.close()
 
 
-
 # Function to collect metrics
 def collect_metrics():
     """
@@ -62,7 +61,7 @@ def collect_metrics():
     _cursor = _conn.cursor()
 
     # Initialize logger
-    logger = logging.getLogger('uvicorn.error')
+    logger = logging.getLogger("uvicorn.error")
 
     # Print State
     logger.info("Collector Starting")
@@ -79,6 +78,18 @@ def collect_metrics():
     # Print State
     logger.info("Collector Started")
 
+    # Fetch GPU Adapters
+    gpu_am = pm.getCounterInstances("GPU Adapter Memory")
+    gpu_nlam = pm.getCounterInstances("GPU Non Local Adapter Memory")
+    gpu_non_local_adapter = ""
+
+    # Find the GPU Non Local Adapter name
+    for adapter in gpu_am:
+        if len([x for x in gpu_nlam if x.startswith(adapter)]) == 0:
+            continue
+        else:
+            gpu_non_local_adapter = adapter
+
     while True:
         # Capture Epoch
         timestamp = time.time()
@@ -88,9 +99,17 @@ def collect_metrics():
             r"Processor Information\_Total\% Processor Time"
         )
         memory_usage = pm.getCounter(r"Memory\% Committed Bytes In Use")
+        gpu_dedicated_memory_usage = pm.getCounter(
+            rf"GPU Adapter Memory\{gpu_non_local_adapter}\Dedicated Usage"
+        )
         metrics = [
             (timestamp, "CPUTotalUsagePercentage", float(processor_usage[1])),
             (timestamp, "MemoryTotalUsagePercentage", float(memory_usage[1])),
+            (
+                timestamp,
+                "GPUDedicatedMemoryGb",
+                float(gpu_dedicated_memory_usage[1]) / 1e9,
+            ),
         ]
 
         # Store the Metrics
