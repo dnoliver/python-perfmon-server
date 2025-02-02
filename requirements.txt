@@ -1,3 +1,2 @@
-pyperfmon
 fastapi
 uvicorn

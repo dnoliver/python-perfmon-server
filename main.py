@@ -3,11 +3,12 @@ Metrics Collection Server
 """
 
 import logging
+import re
 import sqlite3
+import subprocess
 import time
 from threading import Thread
 
-import pythoncom
 from fastapi import FastAPI
 from pyperfmon import pyperfmon
 
@@ -66,65 +67,100 @@ def collect_metrics():
     # Print State
     logger.info("Collector Starting")
 
-    # Initialize the COM library
-    pythoncom.CoInitialize()  # pylint: disable=no-member
-
-    # Create a Performance Monitor object
-    pm = pyperfmon.pyperfmon()
-
-    # Connect to localhost
-    pm.connect("localhost")
-
-    # Print State
-    logger.info("Collector Started")
-
-    # Fetch GPU Adapters
-    gpu_am = pm.getCounterInstances("GPU Adapter Memory")
-    gpu_nlam = pm.getCounterInstances("GPU Non Local Adapter Memory")
-    gpu_non_local_adapter = ""
-
-    # Find the GPU Non Local Adapter name
-    for adapter in gpu_am:
-        if len([x for x in gpu_nlam if x.startswith(adapter)]) == 0:
-            continue
-        else:
-            gpu_non_local_adapter = adapter
+    # Spawn the collector
+    collector_path = "collector.ps1"
+    command = [
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        collector_path,
+    ]
 
     while True:
-        # Capture Epoch
-        timestamp = time.time()
-
-        # Get the Metrics
-        processor_usage = pm.getCounter(
-            r"Processor Information\_Total\% Processor Time"
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        memory_usage = pm.getCounter(r"Memory\% Committed Bytes In Use")
-        gpu_dedicated_memory_usage = pm.getCounter(
-            rf"GPU Adapter Memory\{gpu_non_local_adapter}\Dedicated Usage"
-        )
-        metrics = [
-            (timestamp, "CPUTotalUsagePercentage", float(processor_usage[1])),
-            (timestamp, "MemoryTotalUsagePercentage", float(memory_usage[1])),
-            (
-                timestamp,
-                "GPUDedicatedMemoryGb",
-                float(gpu_dedicated_memory_usage[1]) / 1e9,
-            ),
-        ]
 
-        # Store the Metrics
-        for metric in metrics:
-            _cursor.execute(
-                """
-                INSERT INTO Metrics (timestamp, name, value)
-                VALUES (?, ?, ?)
-                """,
-                metric,
-            )
-        _conn.commit()
+        # Collect output while the process is running
+        while process.poll() is None:
+            output = process.stdout.readline().decode("utf-8").strip()
+            if output:
+                # Print the output
+                logger.info(output)
 
-        # Sleep for COLLECTION_INTERVAL seconds
-        time.sleep(COLLECTION_INTERVAL)
+                # Regular expression pattern to capture the metrics
+                pattern = (
+                    r"metrics "
+                    r"cpu-usage-percent=(?P<cpu_usage>[\d.]+),"
+                    r"memory-usage-percent=(?P<memory_usage>[\d.]+),"
+                    r"gpu-dedicated-memory-percent=(?P<gpu_memory>[\d.]+),"
+                    r"gpu-copy-usage-percent=(?P<gpu_copy>[\d.]+),"
+                    r"gpu-compute-usage-percent=(?P<gpu_compute>[\d.]+) "
+                    r"(?P<epoch>\d+)"
+                )
+
+                # Match the pattern
+                match = re.match(pattern, output)
+
+                if match:
+                    metrics = {
+                        "cpu_usage_percent": float(match.group("cpu_usage")),
+                        "memory_usage_percent": float(match.group("memory_usage")),
+                        "gpu_dedicated_memory_percent": float(
+                            match.group("gpu_memory")
+                        ),
+                        "gpu_copy_usage_percent": float(match.group("gpu_copy")),
+                        "gpu_compute_usage_percent": float(match.group("gpu_compute")),
+                        "epoch": int(match.group("epoch")),
+                    }
+
+                    metrics = [
+                        (
+                            metrics["epoch"],
+                            "CPUTotalUsagePercentage",
+                            metrics["cpu_usage_percent"],
+                        ),
+                        (
+                            metrics["epoch"],
+                            "MemoryTotalUsagePercentage",
+                            metrics["memory_usage_percent"],
+                        ),
+                        (
+                            metrics["epoch"],
+                            "GPUDedicatedMemoryPercentage",
+                            metrics["gpu_dedicated_memory_percent"],
+                        ),
+                        (
+                            metrics["epoch"],
+                            "GPUCopyUsagePercentage",
+                            metrics["gpu_copy_usage_percent"],
+                        ),
+                        (
+                            metrics["epoch"],
+                            "GPUComputeUsagePercentage",
+                            metrics["gpu_compute_usage_percent"],
+                        ),
+                    ]
+
+                    # Store the Metrics
+                    for metric in metrics:
+                        _cursor.execute(
+                            """
+                            INSERT INTO Metrics (timestamp, name, value)
+                            VALUES (?, ?, ?)
+                            """,
+                            metric,
+                        )
+                    _conn.commit()
+
+                # Sleep for COLLECTION_INTERVAL seconds
+                time.sleep(COLLECTION_INTERVAL)
+
+        # Log termination
+        logger.info("Collector Terminated, restarting in 5 seconds")
+        time.sleep(5)
 
 
 # Create a daemon thread
