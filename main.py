@@ -15,6 +15,9 @@ from pyperfmon import pyperfmon
 # Constant to adjust collection interval
 COLLECTION_INTERVAL = 2
 
+# Collector restart delay
+COLLECTOR_RESTART_DELAY = 5
+
 # Constant to define database storage
 DATABASE = "metrics.db"
 
@@ -85,8 +88,10 @@ def collect_metrics():
 
         # Collect output while the process is running
         while process.poll() is None:
-            output = process.stdout.readline().decode("utf-8").strip()
-            if output:
+            for line in process.stdout:
+                # Decode the line
+                output = line.decode("utf-8").strip()
+            
                 # Print the output
                 logger.info(output)
 
@@ -159,8 +164,8 @@ def collect_metrics():
                 time.sleep(COLLECTION_INTERVAL)
 
         # Log termination
-        logger.info("Collector Terminated, restarting in 5 seconds")
-        time.sleep(5)
+        logger.info(F"Collector Terminated, restarting in {COLLECTOR_RESTART_DELAY} seconds")
+        time.sleep(COLLECTOR_RESTART_DELAY)
 
 
 # Create a daemon thread
@@ -174,10 +179,10 @@ app = FastAPI()
 
 
 # Define the root endpoint
-@app.get("/")
+@app.get("/metrics")
 def read_available_counters():
     """
-    Root endpoint returns list of available counters
+    Root endpoint returns list of available metrics
     """
 
     # Open database connection
@@ -204,10 +209,10 @@ def read_available_counters():
 
 
 # Define the counter endpoint
-@app.get("/counter/{counter_name}")
-def read_performance_counter(counter_name: str):
+@app.get("/metric/{metric_name}")
+def read_performance_counter(metric_name: str):
     """
-    Endpoint to return the performance counter
+    Endpoint to return the metric values
     """
 
     # Open database connection
@@ -224,7 +229,7 @@ def read_performance_counter(counter_name: str):
             """
             SELECT * FROM Metrics WHERE name = :name and timestamp > :timestamp
             """,
-            {"name": counter_name, "timestamp": timestamp},
+            {"name": metric_name, "timestamp": timestamp},
         )
         rows = _cursor.fetchall()
         _results = [{"timestamp": row[0], "value": row[2]} for row in rows]

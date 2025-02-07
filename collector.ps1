@@ -6,14 +6,22 @@ $GPU = Get-WmiObject Win32_VideoController
 $GPUDedicatedMemory = 0
 
 # Identify Discrete GPU Dedicated Memory
-switch ($GPU.Description) {
-    "Intel(R) Arc(TM) A770 Graphics" {
-        $GPUDedicatedMemory = 16GB
+$GPUDedicatedMemory = 0
+foreach ($gpuItem in $GPU) {
+    switch ($gpuItem.Description) {
+        {$_ -match "Intel\(R\) Arc\(TM\) A770 Graphics"} {
+            $GPUDedicatedMemory = 16GB
+            break
+        }
     }
-    Default {
-        Write-Output "Can't find GPU Dedicated Memory"
-        exit 1
-    }
+}
+
+# Exit if GPU Dedicated Memory is not found
+if ($GPUDedicatedMemory -eq 0) {
+    Write-Output "Can't identify GPU, options are:"
+    # Print the list of GPUs
+    Write-Output $GPU.Description
+    exit 1
 }
 
 # Identify GPU Id
