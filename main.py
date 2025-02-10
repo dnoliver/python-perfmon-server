@@ -10,7 +10,6 @@ import time
 from threading import Thread
 
 from fastapi import FastAPI
-from pyperfmon import pyperfmon
 
 # Constant to adjust collection interval
 COLLECTION_INTERVAL = 2
